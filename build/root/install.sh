@@ -402,31 +402,61 @@ if [[ "${VPN_ENABLED}" == "yes" ]]; then
 
 fi
 
+### @martintitin
+export ENABLE_RPC2=$(echo "${ENABLE_RPC2}" | sed -e 's~^[ \t]*~~;s~[ \t]*$~~')
+if [[ ! -z "${ENABLE_RPC2}" ]]; then
+	echo "[info] ENABLE_RPC2 defined as '${ENABLE_RPC2}'" | ts '%Y-%m-%d %H:%M:%.S'
+else
+	echo "[warn] ENABLE_RPC2 not defined (via -e ENABLE_RPC2), defaulting to 'yes'" | ts '%Y-%m-%d %H:%M:%.S'
+	export ENABLE_RPC2="yes"
+fi
 
-### @clayton the above is from the earlier docker image. Below is fom deluge specific install file. 
-export DELUGE_DAEMON_LOG_LEVEL=$(echo "${DELUGE_DAEMON_LOG_LEVEL}" | sed -e 's~^[ \t]*~~;s~[ \t]*$~~')
-if [[ ! -z "${DELUGE_DAEMON_LOG_LEVEL}" ]]; then
-	echo "[info] DELUGE_DAEMON_LOG_LEVEL defined as '${DELUGE_DAEMON_LOG_LEVEL}'" | ts '%Y-%m-%d %H:%M:%.S'
-else
-	echo "[info] DELUGE_DAEMON_LOG_LEVEL not defined,(via -e DELUGE_DAEMON_LOG_LEVEL), defaulting to 'info'" | ts '%Y-%m-%d %H:%M:%.S'
-	export DELUGE_DAEMON_LOG_LEVEL="info"
+if [[ "${ENABLE_RPC2}" == "yes" ]]; then
+	export ENABLE_RPC2_AUTH=$(echo "${ENABLE_RPC2_AUTH}" | sed -e 's~^[ \t]*~~;s~[ \t]*$~~')
+	if [[ ! -z "${ENABLE_RPC2_AUTH}" ]]; then
+		echo "[info] ENABLE_RPC2_AUTH defined as '${ENABLE_RPC2_AUTH}'" | ts '%Y-%m-%d %H:%M:%.S'
+	else
+		echo "[warn] ENABLE_RPC2_AUTH not defined (via -e ENABLE_RPC2_AUTH), defaulting to 'yes'" | ts '%Y-%m-%d %H:%M:%.S'
+		export ENABLE_RPC2_AUTH="yes"
+	fi
+
+	if [[ "${ENABLE_RPC2_AUTH}" == "yes" ]]; then
+		export RPC2_USER=$(echo "${RPC2_USER}" | sed -e 's~^[ \t]*~~;s~[ \t]*$~~')
+		if [[ ! -z "${RPC2_USER}" ]]; then
+			echo "[info] RPC2_USER defined as '${RPC2_USER}'" | ts '%Y-%m-%d %H:%M:%.S'
+		else
+			echo "[warn] RPC2_USER not defined (via -e RPC2_USER), defaulting to 'admin'" | ts '%Y-%m-%d %H:%M:%.S'
+			export RPC2_USER="admin"
+		fi
+
+		export RPC2_PASS=$(echo "${RPC2_PASS}" | sed -e 's~^[ \t]*~~;s~[ \t]*$~~')
+		if [[ ! -z "${RPC2_PASS}" ]]; then
+			if [[ "${RPC2_PASS}" == "rutorrent" ]]; then
+				echo "[warn] RPC2_PASS defined as '${RPC2_PASS}' is weak, please consider using a stronger password" | ts '%Y-%m-%d %H:%M:%.S'
+			else
+				echo "[info] RPC2_PASS defined as '${RPC2_PASS}'" | ts '%Y-%m-%d %H:%M:%.S'
+			fi
+		else
+			mkdir -p "/config/nginx/security"
+			rpc2_pass_file="/config/nginx/security/rpc2_pass"
+			if [ ! -f "${rpc2_pass_file}" ]; then
+				# generate random password for web ui using SHA to hash the date,
+				# run through base64, and then output the top 16 characters to a file.
+				date +%s | sha256sum | base64 | head -c 16 > "${rpc2_pass_file}"
+			fi
+			# change owner as we write to "/config/nginx" later on.
+			chown -R "${PUID}":"${PGID}" "/config/nginx"
+
+			echo "[warn] RPC2_PASS not defined (via -e RPC2_PASS), using randomised password (password stored in '${rpc2_pass_file}')" | ts '%Y-%m-%d %H:%M:%.S'
+			export RPC2_PASS="$(cat ${rpc2_pass_file})"
+		fi
+
+	fi
 fi
-export DELUGE_WEB_LOG_LEVEL=$(echo "${DELUGE_WEB_LOG_LEVEL}" | sed -e 's~^[ \t]*~~;s~[ \t]*$~~')
-if [[ ! -z "${DELUGE_WEB_LOG_LEVEL}" ]]; then
-	echo "[info] DELUGE_WEB_LOG_LEVEL defined as '${DELUGE_WEB_LOG_LEVEL}'" | ts '%Y-%m-%d %H:%M:%.S'
-else
-	echo "[info] DELUGE_WEB_LOG_LEVEL not defined,(via -e DELUGE_WEB_LOG_LEVEL), defaulting to 'info'" | ts '%Y-%m-%d %H:%M:%.S'
-	export DELUGE_WEB_LOG_LEVEL="info"
-fi
-export APPLICATION="deluge"
+
+export APPLICATION="rtorrent"
 
 EOF
-
-
-
-
-
-
 
 # replace env vars common placeholder string with contents of file (here doc)
 sed -i '/# ENVVARS_COMMON_PLACEHOLDER/{

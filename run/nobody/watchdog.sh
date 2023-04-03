@@ -1,25 +1,40 @@
 #!/usr/bin/dumb-init /bin/bash
 
+# define destination file path for rtorrent config file
+rtorrent_config="/config/rtorrent/config/rtorrent.rc"
 
-# if deluge-web config file doesnt exist then copy stock config file
-if [[ ! -f /config/web.conf ]]; then
-	echo "[info] Deluge-web config file doesn't exist, copying default..."
-	cp /home/nobody/webui/web.conf /config/
+# if rtorrent config file doesnt exist then copy default to host config volume
+if [[ ! -f "${rtorrent_config}" ]]; then
+
+	echo "[info] rTorrent config file doesnt exist, copying default to /config/rtorrent/config/..."
+
+	# copy default rtorrent config file to /config/rtorrent/config/
+	mkdir -p /config/rtorrent/config && cp /home/nobody/rtorrent/config/* /config/rtorrent/config/
+
+else
+
+	echo "[info] rTorrent config file already exists, skipping copy"
+
 fi
 
+# replace legacy rtorrent 0.9.6 config entries (rtorrent v0.9.7 does not allow entries below in rtorrent.rc)
+sed -i -e 's~use_udp_trackers = yes~trackers.use_udp.set = yes~g' "${rtorrent_config}"
+sed -i -e 's~use_udp_trackers = no~trackers.use_udp.set = no~g' "${rtorrent_config}"
+sed -i -e 's~peer_exchange = yes~protocol.pex.set = yes~g' "${rtorrent_config}"
+sed -i -e 's~peer_exchange = no~protocol.pex.set = no~g' "${rtorrent_config}"
 
-# if deluge config file doesnt exist then copy stock config file
-if [[ ! -f /config/core.conf ]]; then
-	echo "[info] Deluge config file doesn't exist, copying default..."
-	cp /home/nobody/deluge/core.conf /config/
-fi
+# remove legacy rtorrent 0.9.6 config entries (rtorrent v0.9.7 does not allow entries below in rtorrent.rc)
+sed -i '/system.file_allocate.set/d' "${rtorrent_config}"
 
-# force unix line endings conversion in case user edited core.conf with notepad
-/usr/local/bin/dos2unix.sh "/config/core.conf"
+# force unix line endings conversion in case user edited rtorrent.rc with notepad
+/usr/local/bin/dos2unix.sh "${rtorrent_config}"
+
+# create soft link to rtorrent config file
+ln -fs "${rtorrent_config}" ~/.rtorrent.rc
 
 # set default values for port and ip
-deluge_port="6890"
-deluge_ip="0.0.0.0"
+rtorrent_port="49160"
+rtorrent_ip="0.0.0.0"
 
 # define sleep period between loops
 sleep_period_secs=30
@@ -34,11 +49,11 @@ sleep_period_counter_secs=0
 while true; do
 
 	# reset triggers to negative values
-	deluge_running="false"
-	deluge_web_running="false"
+	rtorrent_running="false"
 	privoxy_running="false"
+	irssi_running="false"
 	ip_change="false"
-	deluge_port_change="false"
+	rtorrent_port_change="false"
 
 	if [[ "${VPN_ENABLED}" == "yes" ]]; then
 
@@ -48,35 +63,36 @@ while true; do
 		# if vpn_ip is not blank then run, otherwise log warning
 		if [[ ! -z "${vpn_ip}" ]]; then
 
-			# if current bind interface ip is different to tunnel local ip then re-configure deluge
-			if [[ "${deluge_ip}" != "${vpn_ip}" ]]; then
+			# if current bind interface ip is different to tunnel local ip then re-configure rtorrent
+			if [[ "${rtorrent_ip}" != "${vpn_ip}" ]]; then
 
-				echo "[info] Deluge listening interface IP ${deluge_ip} and VPN provider IP ${vpn_ip} different, marking for reconfigure"
+				echo "[info] rTorrent listening interface IP ${rtorrent_ip} and VPN provider IP ${vpn_ip} different, marking for reconfigure"
 
 				# mark as reload required due to mismatch
 				ip_change="true"
 
 			fi
 
-			# check if deluged is running
-			if ! pgrep -x "deluged" > /dev/null; then
+			# check if rtorrent is running, if not then skip shutdown of process
+			if ! pgrep -x "rtorrent main" > /dev/null; then
 
-				echo "[info] Deluge not running"
+				echo "[info] rTorrent not running"
 
 			else
 
-				deluge_running="true"
+				# mark as rtorrent as running
+				rtorrent_running="true"
 
 			fi
 
-			# check if deluge-web is running
-			if ! pgrep -x "deluge-web" > /dev/null; then
+			# check if flood is running
+			if ! pgrep -x "flood" > /dev/null; then
 
-				echo "[info] Deluge Web UI not running"
+				echo "[info] Flood Web UI not running"
 
 			else
 
-				deluge_web_running="true"
+				flood_web_running="true"
 
 			fi
 
@@ -101,15 +117,15 @@ while true; do
 				# if vpn port is not an integer then dont change port
 				if [[ ! "${VPN_INCOMING_PORT}" =~ ^-?[0-9]+$ ]]; then
 
-					# set vpn port to current deluge port, as we currently cannot detect incoming port (line saturated, or issues with pia)
-					VPN_INCOMING_PORT="${deluge_port}"
+					# set vpn port to current rtorrent port, as we currently cannot detect incoming port (line saturated, or issues with pia)
+					VPN_INCOMING_PORT="${rtorrent_port}"
 
 					# ignore port change as we cannot detect new port
-					deluge_port_change="false"
+					rtorrent_port_change="false"
 
 				else
 
-					if [[ "${deluge_running}" == "true" ]]; then
+					if [[ "${rtorrent_running}" == "true" ]]; then
 
 						if [ "${sleep_period_counter_secs}" -ge "${sleep_period_incoming_port_secs}" ]; then
 
@@ -123,12 +139,12 @@ while true; do
 
 					fi
 
-					if [[ "${deluge_port}" != "${VPN_INCOMING_PORT}" ]]; then
+					if [[ "${rtorrent_port}" != "${VPN_INCOMING_PORT}" ]]; then
 
-						echo "[info] Deluge incoming port $deluge_port and VPN incoming port ${VPN_INCOMING_PORT} different, marking for reconfigure"
+						echo "[info] rTorrent incoming port $rtorrent_port and VPN incoming port ${VPN_INCOMING_PORT} different, marking for reconfigure"
 
 						# mark as reconfigure required due to mismatch
-						deluge_port_change="true"
+						rtorrent_port_change="true"
 
 					fi
 
@@ -136,10 +152,10 @@ while true; do
 
 			fi
 
-			if [[ "${deluge_port_change}" == "true" || "${ip_change}" == "true" || "${deluge_running}" == "false" || "${deluge_web_running}" == "false" ]]; then
+			if [[ "${rtorrent_port_change}" == "true" || "${ip_change}" == "true" || "${rtorrent_running}" == "false" ]]; then
 
-				# run script to start deluge
-				source /home/nobody/deluge.sh
+				# run script to start rtorrent, it can also perform shutdown of rtorrent if its already running (required for port/ip change)
+				source /home/nobody/rtorrent.sh
 
 			fi
 
@@ -162,25 +178,29 @@ while true; do
 
 	else
 
-		# check if deluged is running
-		if ! pgrep -x "deluged" > /dev/null; then
+		# check if rtorrent is running, if not then start via rtorrent.sh
+		if ! pgrep -x "rtorrent main" > /dev/null; then
 
-			echo "[info] Deluge not running"
+			echo "[info] rTorrent not running"
+
+			# run script to start rtorrent
+			source /home/nobody/rtorrent.sh
 
 		else
 
-			deluge_running="true"
+			rtorrent_running="true"
 
 		fi
 
-		# check if deluge-web is running
-		if ! pgrep -x "deluge-web" > /dev/null; then
+		# check if flood-web is running
+		if ! pgrep -x "flood" > /dev/null; then
 
-			echo "[info] Deluge Web UI not running"
+			echo "[info] Flood Web UI not running"
+			# arrancar Flood
 
 		else
 
-			deluge_web_running="true"
+			flood_web_running="true"
 
 		fi
 
@@ -198,13 +218,6 @@ while true; do
 
 		fi
 
-		if [[ "${deluge_running}" == "false" || "${deluge_web_running}" == "false" ]]; then
-
-			# run script to start deluge
-			source /home/nobody/deluge.sh
-
-		fi
-
 	fi
 
 	if [[ "${DEBUG}" == "true" && "${VPN_ENABLED}" == "yes" ]]; then
@@ -212,12 +225,12 @@ while true; do
 		if [[ "${VPN_PROV}" == "pia" && -n "${VPN_INCOMING_PORT}" ]]; then
 
 			echo "[debug] VPN incoming port is ${VPN_INCOMING_PORT}"
-			echo "[debug] Deluge incoming port is ${deluge_port}"
+			echo "[debug] rTorrent incoming port is ${rtorrent_port}"
 
 		fi
 
 		echo "[debug] VPN IP is ${vpn_ip}"
-		echo "[debug] Deluge IP is ${deluge_ip}"
+		echo "[debug] rTorrent IP is ${rtorrent_ip}"
 
 	fi
 
